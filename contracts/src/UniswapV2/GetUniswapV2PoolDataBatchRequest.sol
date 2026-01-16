@@ -65,7 +65,7 @@ contract GetUniswapV2PoolDataBatchRequest {
                         (uint256)
                     );
 
-                    if (tokenADecimals == 0 || tokenADecimals > 255) {
+                    if (tokenADecimals > 255) {
                         continue;
                     } else {
                         poolData.tokenADecimals = uint8(tokenADecimals);
@@ -94,7 +94,7 @@ contract GetUniswapV2PoolDataBatchRequest {
                         (uint256)
                     );
 
-                    if (tokenBDecimals == 0 || tokenBDecimals > 255) {
+                    if (tokenBDecimals > 255) {
                         continue;
                     } else {
                         poolData.tokenBDecimals = uint8(tokenBDecimals);

@@ -269,7 +269,9 @@ contract WethValueInPools {
             FixedPointMath.fromSqrtX96(
                 sqrtPriceX96,
                 token0IsReserve0,
+                // forge-lint: disable-next-line(unsafe-typecast)
                 token0IsReserve0 ? int8(tokenDecimals) : int8(WETH_DECIMALS),
+                // forge-lint: disable-next-line(unsafe-typecast)
                 token0IsReserve0 ? int8(WETH_DECIMALS) : int8(tokenDecimals)
             ) >> 64
         );
@@ -286,9 +288,10 @@ contract WethValueInPools {
             if (tokenDecimalsData.length == 32) {
                 (tokenDecimals) = abi.decode(tokenDecimalsData, (uint256));
 
-                if (tokenDecimals == 0 || tokenDecimals > 255) {
+                if (tokenDecimals > 255) {
                     return (0, false);
                 } else {
+                    // forge-lint: disable-next-line(unsafe-typecast)
                     return (uint8(tokenDecimals), true);
                 }
             } else {

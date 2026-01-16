@@ -87,9 +87,9 @@ pub enum BalancerError {
     #[error("Error initializing Balancer Pool")]
     InitializationError,
     #[error("Token in does not exist")]
-    TokenInDoesNotExist,
+    TokenInDoesNotExist(Address),
     #[error("Token out does not exist")]
-    TokenOutDoesNotExist,
+    TokenOutDoesNotExist(Address),
     #[error("Division by zero")]
     DivZero,
     #[error("Error during division")]
@@ -140,12 +140,12 @@ impl AutomatedMarketMaker for BalancerPool {
 
             self.state
                 .get_mut(&swap_event.tokenIn)
-                .ok_or(BalancerError::TokenInDoesNotExist)?
+                .ok_or(BalancerError::TokenInDoesNotExist(swap_event.tokenIn))?
                 .liquidity += swap_event.tokenAmountIn;
 
             self.state
                 .get_mut(&swap_event.tokenOut)
-                .ok_or(BalancerError::TokenOutDoesNotExist)?
+                .ok_or(BalancerError::TokenOutDoesNotExist(swap_event.tokenOut))?
                 .liquidity += swap_event.tokenAmountOut;
 
             info!(
@@ -158,7 +158,7 @@ impl AutomatedMarketMaker for BalancerPool {
 
             self.state
                 .get_mut(&join_event.tokenIn)
-                .ok_or(BalancerError::TokenInDoesNotExist)?
+                .ok_or(BalancerError::TokenInDoesNotExist(join_event.tokenIn))?
                 .liquidity += join_event.tokenAmountIn;
 
             info!(
@@ -171,7 +171,7 @@ impl AutomatedMarketMaker for BalancerPool {
 
             self.state
                 .get_mut(&exit_event.tokenIn)
-                .ok_or(BalancerError::TokenInDoesNotExist)?
+                .ok_or(BalancerError::TokenInDoesNotExist(exit_event.tokenIn))?
                 .liquidity -= exit_event.tokenAmountIn;
 
             info!(
@@ -205,12 +205,12 @@ impl AutomatedMarketMaker for BalancerPool {
         let token_in = self
             .state
             .get(&base_token)
-            .ok_or(BalancerError::TokenInDoesNotExist)?;
+            .ok_or(BalancerError::TokenInDoesNotExist(base_token))?;
 
         let token_out = self
             .state
             .get(&quote_token)
-            .ok_or(BalancerError::TokenOutDoesNotExist)?;
+            .ok_or(BalancerError::TokenOutDoesNotExist(quote_token))?;
 
         let bone = u256_to_float(BONE)?;
         let norm_base = if token_in.token.decimals < 18 {
@@ -255,12 +255,12 @@ impl AutomatedMarketMaker for BalancerPool {
         let token_in = self
             .state
             .get(&base_token)
-            .ok_or(BalancerError::TokenInDoesNotExist)?;
+            .ok_or(BalancerError::TokenInDoesNotExist(base_token))?;
 
         let token_out = self
             .state
             .get(&quote_token)
-            .ok_or(BalancerError::TokenOutDoesNotExist)?;
+            .ok_or(BalancerError::TokenOutDoesNotExist(quote_token))?;
 
         Ok(bmath::calculate_out_given_in(
             token_in.liquidity,
@@ -286,12 +286,12 @@ impl AutomatedMarketMaker for BalancerPool {
         let token_in = self
             .state
             .get(&base_token)
-            .ok_or(BalancerError::TokenInDoesNotExist)?;
+            .ok_or(BalancerError::TokenInDoesNotExist(base_token))?;
 
         let token_out = self
             .state
             .get(&quote_token)
-            .ok_or(BalancerError::TokenOutDoesNotExist)?;
+            .ok_or(BalancerError::TokenOutDoesNotExist(quote_token))?;
 
         let out = bmath::calculate_out_given_in(
             token_in.liquidity,
