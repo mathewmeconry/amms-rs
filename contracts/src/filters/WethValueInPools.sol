@@ -253,7 +253,7 @@ contract WethValueInPools {
 
         // Get slot 0 sqrtPriceX96
         uint160 sqrtPriceX96;
-        try pool.slot0() returns (uint160 _sqrtPriceX96, int24, uint16, uint16, uint16, uint8, bool) {
+        try pool.slot0() returns (uint160 _sqrtPriceX96, int24, uint16, uint16, uint16, uint64) {
             sqrtPriceX96 = _sqrtPriceX96;
         } catch {
             return 0;

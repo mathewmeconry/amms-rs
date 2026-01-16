@@ -22,7 +22,7 @@ contract GetUniswapV3PoolSlot0BatchRequest {
             IUniswapV3PoolState pool = IUniswapV3PoolState(poolAddress);
             slot0Data.liquidity = pool.liquidity();
 
-            (slot0Data.sqrtPrice, slot0Data.tick, , , , , ) = pool.slot0();
+            (slot0Data.sqrtPrice, slot0Data.tick, , , ,  ) = pool.slot0();
 
             allSlot0Data[i] = slot0Data;
         }
@@ -80,8 +80,7 @@ interface IUniswapV3PoolState {
             uint16 observationIndex,
             uint16 observationCardinality,
             uint16 observationCardinalityNext,
-            uint8 feeProtocol,
-            bool unlocked
+            uint64 feeProtocol // Increased to swallow the bool after it and work with pancake and uniswap v3
         );
 
     function liquidity() external view returns (uint128);

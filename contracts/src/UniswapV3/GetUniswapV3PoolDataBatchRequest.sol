@@ -148,8 +148,7 @@ interface IUniswapV3PoolState {
             uint16 observationIndex,
             uint16 observationCardinality,
             uint16 observationCardinalityNext,
-            uint8 feeProtocol,
-            bool unlocked
+            uint64 feeProtocol // Increased to swallow the bool after it and work with pancake and uniswap v3
         );
 
     function liquidity() external view returns (uint128);
