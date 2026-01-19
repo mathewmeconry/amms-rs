@@ -190,7 +190,7 @@ impl AutomatedMarketMaker for UniswapV2Pool {
             <Vec<(Address, Address, u128, u128, u32, u32)> as SolValue>::abi_decode(&res)?[0];
 
         if pool_data.0.is_zero() {
-            todo!("Return error {:#?}", pool_data);
+            return Err(AMMError::InvalidData);
         }
 
         self.token_a = Token::new_with_decimals(pool_data.0, pool_data.4 as u8);

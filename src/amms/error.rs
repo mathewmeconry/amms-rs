@@ -31,6 +31,8 @@ pub enum AMMError {
     UnrecognizedEventSignature(FixedBytes<32>),
     #[error(transparent)]
     JoinError(#[from] tokio::task::JoinError),
+    #[error("Invalid Data Provided")]
+    InvalidData,
 }
 
 #[derive(Error, Debug)]
