@@ -786,6 +786,7 @@ impl UniswapV3Factory {
 
         let sync_step = 100_000;
         let mut latest_block = self.creation_block;
+        let mut pools = vec![];
         while latest_block < target_block_num {
             let mut block_filter = disc_filter.clone();
             let from_block = latest_block;
@@ -796,12 +797,21 @@ impl UniswapV3Factory {
 
             let sync_provider = sync_provider.clone();
 
+            if futures.len() >= 10 {
+                if let Some(res) = futures.next().await {
+                    let logs = res?;
+
+                    for log in logs {
+                        pools.push(self.create_pool(log)?);
+                    }
+                }
+            }
+
             futures.push(async move { sync_provider.get_logs(&block_filter).await });
 
             latest_block = to_block + 1;
         }
 
-        let mut pools = vec![];
         while let Some(res) = futures.next().await {
             let logs = res?;
 
