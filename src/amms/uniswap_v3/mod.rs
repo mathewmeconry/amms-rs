@@ -8,8 +8,9 @@ use crate::amms::{
     consts::U256_1, uniswap_v3::GetUniswapV3PoolTickBitmapBatchRequest::TickBitmapInfo,
 };
 use alloy::{
-    eips::BlockId,
-    network::Network,
+    consensus::BlockHeader,
+    eips::{BlockId, BlockNumberOrTag},
+    network::{BlockResponse, Network},
     primitives::{Address, Bytes, Signed, B256, I256, U256},
     providers::Provider,
     rpc::types::{Filter, FilterSet, Log},
@@ -771,12 +772,24 @@ impl UniswapV3Factory {
         let sync_provider = provider.clone();
         let mut futures = FuturesUnordered::new();
 
+        let target_block_num = match block_number {
+            BlockId::Number(BlockNumberOrTag::Number(num)) => num,
+            BlockId::Number(tag) => {
+                let block = provider.get_block_by_number(tag).await?;
+                block.unwrap().header().number()
+            }
+            BlockId::Hash(hash) => {
+                let res = provider.get_block_by_hash(hash.block_hash).await?;
+                res.unwrap().header().number()
+            }
+        };
+
         let sync_step = 100_000;
         let mut latest_block = self.creation_block;
-        while latest_block < block_number.as_u64().unwrap_or_default() {
+        while latest_block < target_block_num {
             let mut block_filter = disc_filter.clone();
             let from_block = latest_block;
-            let to_block = (from_block + sync_step).min(block_number.as_u64().unwrap_or_default());
+            let to_block = (from_block + sync_step).min(target_block_num);
 
             block_filter = block_filter.from_block(from_block);
             block_filter = block_filter.to_block(to_block);
