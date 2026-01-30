@@ -29,7 +29,7 @@ use std::{
     str::FromStr,
 };
 use thiserror::Error;
-use tracing::info;
+use tracing::{debug, info, warn};
 use uniswap_v3_math::error::UniswapV3MathError;
 use uniswap_v3_math::tick_math::{MAX_SQRT_RATIO, MAX_TICK, MIN_SQRT_RATIO, MIN_TICK};
 use GetUniswapV3PoolTickDataBatchRequest::TickDataInfo;
@@ -798,23 +798,55 @@ impl UniswapV3Factory {
             let sync_provider = sync_provider.clone();
 
             if futures.len() >= 10 {
-                if let Some(res) = futures.next().await {
-                    let logs = res?;
-
-                    for log in logs {
-                        pools.push(self.create_pool(log)?);
+                while futures.len() > 0 {
+                    if let Some(logs) = futures.next().await {
+                        for log in logs {
+                            pools.push(self.create_pool(log)?);
+                        }
+                        info!(
+                            pending_futures = ?futures.len(),
+                            pool_count = ?pools.len(),
+                            "Processed batch of pool creation logs"
+                        );
                     }
                 }
             }
 
-            futures.push(async move { sync_provider.get_logs(&block_filter).await });
+            futures.push(async move {
+                let mut attempts = 0;
+                const MAX_ATTEMPTS: u32 = 3;
+                loop {
+                    match sync_provider.get_logs(&block_filter).await {
+                        Ok(logs) => break logs,
+                        Err(e) => {
+                            attempts += 1;
+                            if attempts >= MAX_ATTEMPTS {
+                                warn!(
+                                    target = "amms::uniswap_v3::get_all_pools",
+                                    error = ?e,
+                                    "Max attempts reached, returning empty logs"
+                                );
+                                break vec![]; // Return empty logs on failure after max attempts
+                            }
+                            tracing::warn!(
+                                target = "amms::uniswap_v3::get_all_pools",
+                                attempt = attempts,
+                                error = ?e,
+                                "Failed to get logs, retrying"
+                            );
+                            tokio::time::sleep(tokio::time::Duration::from_millis(
+                                100 * attempts as u64,
+                            ))
+                            .await;
+                        }
+                    }
+                }
+            });
 
             latest_block = to_block + 1;
         }
 
-        while let Some(res) = futures.next().await {
-            let logs = res?;
-
+        while let Some(logs) = futures.next().await {
             for log in logs {
                 pools.push(self.create_pool(log)?);
             }

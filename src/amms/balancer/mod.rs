@@ -359,6 +359,10 @@ impl BalancerPool {
             ..Default::default()
         }
     }
+
+    pub fn get_token_state(&self, token: &Address) -> Option<&TokenPoolState> {
+        self.state.get(token)
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
