@@ -103,16 +103,68 @@ impl AutomatedMarketMaker for CurvePool {
         ]
     }
 
-    fn sync(&mut self, _log: &Log) -> Result<(), AMMError> {
-        // For Curve pools, we need to refetch the balances since the events
-        // don't always provide the full state update (especially for multi-token pools)
-        // This is a simplified implementation - in production you'd want to fetch
-        // the actual balances from the contract
-        info!(
-            target = "amm::curve::sync",
-            address = ?self.address,
-            "Sync event received - balances need to be refreshed"
-        );
+    fn sync(&mut self, log: &Log) -> Result<(), AMMError> {
+        // Handle different Curve pool events
+        let event_signature = log.topics()[0];
+        
+        if event_signature == ICurvePool::TokenExchange::SIGNATURE_HASH {
+            let event = ICurvePool::TokenExchange::decode_log(&log.inner)?;
+            let sold_idx = event.sold_id as usize;
+            let bought_idx = event.bought_id as usize;
+            
+            if sold_idx < self.balances.len() && bought_idx < self.balances.len() {
+                self.balances[sold_idx] = self.balances[sold_idx]
+                    .checked_add(event.tokens_sold.to::<u128>())
+                    .ok_or(AMMError::ArithmeticError)?;
+                self.balances[bought_idx] = self.balances[bought_idx]
+                    .checked_sub(event.tokens_bought.to::<u128>())
+                    .ok_or(AMMError::ArithmeticError)?;
+                    
+                info!(
+                    target = "amm::curve::sync",
+                    address = ?self.address,
+                    sold_id = sold_idx,
+                    bought_id = bought_idx,
+                    "TokenExchange synced"
+                );
+            }
+        } else if event_signature == ICurvePool::TokenExchangeUnderlying::SIGNATURE_HASH {
+            let event = ICurvePool::TokenExchangeUnderlying::decode_log(&log.inner)?;
+            let sold_idx = event.sold_id as usize;
+            let bought_idx = event.bought_id as usize;
+            
+            if sold_idx < self.balances.len() && bought_idx < self.balances.len() {
+                self.balances[sold_idx] = self.balances[sold_idx]
+                    .checked_add(event.tokens_sold.to::<u128>())
+                    .ok_or(AMMError::ArithmeticError)?;
+                self.balances[bought_idx] = self.balances[bought_idx]
+                    .checked_sub(event.tokens_bought.to::<u128>())
+                    .ok_or(AMMError::ArithmeticError)?;
+                    
+                info!(
+                    target = "amm::curve::sync",
+                    address = ?self.address,
+                    sold_id = sold_idx,
+                    bought_id = bought_idx,
+                    "TokenExchangeUnderlying synced"
+                );
+            }
+        } else if event_signature == ICurvePool::AddLiquidity::SIGNATURE_HASH {
+            // For AddLiquidity and RemoveLiquidity, we need to refetch balances
+            // since the events don't provide complete balance information for all tokens
+            info!(
+                target = "amm::curve::sync",
+                address = ?self.address,
+                "AddLiquidity event - balances need to be refreshed via contract call"
+            );
+        } else if event_signature == ICurvePool::RemoveLiquidity::SIGNATURE_HASH {
+            info!(
+                target = "amm::curve::sync",
+                address = ?self.address,
+                "RemoveLiquidity event - balances need to be refreshed via contract call"
+            );
+        }
+        
         Ok(())
     }
 
@@ -172,18 +224,70 @@ impl AutomatedMarketMaker for CurvePool {
         Ok(amount_out_f64 / amount_in_f64)
     }
 
-    async fn init<N, P>(self, _block_number: BlockId, _provider: P) -> Result<Self, AMMError>
+    async fn init<N, P>(mut self, block_number: BlockId, provider: P) -> Result<Self, AMMError>
     where
         N: Network,
         P: Provider<N> + Clone,
     {
-        // In a full implementation, this would fetch pool data from the contract
-        // For now, we assume the pool is already initialized with data
+        let curve_pool = ICurvePool::new(self.address, provider.clone());
+        
+        // Fetch amplification coefficient
+        let amp_result = curve_pool.A().call().block(block_number).await;
+        if let Ok(amp) = amp_result {
+            self.amplification_coefficient = amp.to::<u128>();
+        }
+        
+        // Fetch fee
+        let fee_result = curve_pool.fee().call().block(block_number).await;
+        if let Ok(fee) = fee_result {
+            // Curve fees are typically in basis points (e.g., 4 for 0.04%)
+            self.fee = fee.to::<u32>();
+        }
+        
+        // Fetch tokens and balances
+        // Try to fetch up to 8 tokens (most Curve pools have 2-4)
+        let mut tokens = Vec::new();
+        let mut balances = Vec::new();
+        
+        for i in 0..8 {
+            // Try to get the coin address
+            let coin_result = curve_pool.coins(U256::from(i)).call().block(block_number).await;
+            
+            match coin_result {
+                Ok(coin_address) if !coin_address.is_zero() => {
+                    // Get the balance for this token
+                    let balance_result = curve_pool.balances(U256::from(i)).call().block(block_number).await;
+                    
+                    if let Ok(balance) = balance_result {
+                        // Fetch token decimals
+                        let token = Token::new(coin_address, provider.clone()).await?;
+                        tokens.push(token);
+                        balances.push(balance.to::<u128>());
+                    } else {
+                        break;
+                    }
+                },
+                _ => break, // No more tokens
+            }
+        }
+        
+        // Validate we have at least 2 tokens
+        if tokens.len() < 2 {
+            return Err(AMMError::InvalidData);
+        }
+        
+        self.tokens = tokens;
+        self.balances = balances;
+        
         info!(
             target = "amm::curve::init",
             address = ?self.address,
-            "Initializing Curve pool"
+            num_tokens = self.tokens.len(),
+            amplification = self.amplification_coefficient,
+            fee = self.fee,
+            "Curve pool initialized"
         );
+        
         Ok(self)
     }
 }
