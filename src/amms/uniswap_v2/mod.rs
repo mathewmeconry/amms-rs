@@ -398,6 +398,12 @@ impl UniswapV2Factory {
             .await?
             .to::<usize>();
 
+        info!(
+            target = "amms::uniswap_v2::get_all_pairs",
+            factory = ?factory_address,
+            pairs_length,
+            "Fetching all pairs"
+        );
         let step = 766;
         let mut futures_unordered = FuturesUnordered::new();
         for i in (0..pairs_length).step_by(step) {
@@ -414,6 +420,13 @@ impl UniswapV2Factory {
                 let res = deployer.call_raw().block(block_number).await?;
                 let return_data = <Vec<Address> as SolValue>::abi_decode(&res)?;
 
+                info!(
+                    target = "amms::uniswap_v2::get_all_pairs",
+                    factory = ?factory_address,
+                    start_index = i,
+                    pairs_found = return_data.len(),
+                    "Fetched batch of pairs"
+                );
                 Ok::<Vec<Address>, AMMError>(return_data)
             });
         }
