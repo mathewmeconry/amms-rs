@@ -1,6 +1,6 @@
 use super::{
-    balancer::BalancerError, erc_4626::ERC4626VaultError, uniswap_v2::UniswapV2Error,
-    uniswap_v3::UniswapV3Error,
+    balancer::BalancerError, curve::CurveStableSwapError, erc_4626::ERC4626VaultError,
+    uniswap_v2::UniswapV2Error, uniswap_v3::UniswapV3Error,
 };
 use alloy::{primitives::FixedBytes, transports::TransportErrorKind};
 use thiserror::Error;
@@ -22,6 +22,8 @@ pub enum AMMError {
     #[error(transparent)]
     BalancerError(#[from] BalancerError),
     #[error(transparent)]
+    CurveStableSwapError(#[from] CurveStableSwapError),
+    #[error(transparent)]
     ERC4626VaultError(#[from] ERC4626VaultError),
     #[error(transparent)]
     BatchContractError(#[from] BatchContractError),
@@ -33,6 +35,8 @@ pub enum AMMError {
     JoinError(#[from] tokio::task::JoinError),
     #[error("Invalid Data Provided")]
     InvalidData,
+    #[error("Arithmetic Error")]
+    ArithmeticError,
 }
 
 #[derive(Error, Debug)]

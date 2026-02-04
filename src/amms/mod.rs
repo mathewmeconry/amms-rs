@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub mod amm;
 pub mod balancer;
 pub mod consts;
+pub mod curve;
 pub mod erc_4626;
 pub mod error;
 pub mod factory;
