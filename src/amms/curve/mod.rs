@@ -160,7 +160,6 @@ impl AutomatedMarketMaker for CurvePool {
         let j = self.get_token_index(quote_token)?;
 
         let base_decimals = self.tokens[i].decimals;
-        let _quote_decimals = self.tokens[j].decimals;
 
         // Use 1 token as the amount_in
         let amount_in = U256::from(10_u128.pow(base_decimals as u32));

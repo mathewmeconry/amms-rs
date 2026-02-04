@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
         
         if all_abis_exist {
-            println!("cargo:warning=forge not available, but all ABI files exist");
+            println!("cargo:warning=forge not available, using existing ABI files - changes to contracts will not be reflected");
             println!("cargo:rerun-if-changed=contracts");
             return Ok(());
         } else {
