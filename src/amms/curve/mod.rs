@@ -20,7 +20,7 @@ use tracing::info;
 sol! {
     #[derive(Debug, PartialEq, Eq)]
     #[sol(rpc)]
-    contract ICurvePool {
+    contract ICurveStableSwapPool {
         event TokenExchange(
             address indexed buyer,
             int128 sold_id,
@@ -68,7 +68,7 @@ sol! {
 }
 
 #[derive(Error, Debug)]
-pub enum CurveError {
+pub enum CurveStableSwapError {
     #[error("Invalid token index")]
     InvalidTokenIndex,
     #[error("Invariant calculation failed to converge")]
@@ -81,7 +81,7 @@ pub enum CurveError {
 
 /// Curve StableSwap pool implementation
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CurvePool {
+pub struct CurveStableSwapPool {
     pub address: Address,
     pub tokens: Vec<Token>,
     pub balances: Vec<u128>,
@@ -89,17 +89,17 @@ pub struct CurvePool {
     pub fee: u32,                        // fee in basis points (e.g., 4 = 0.04%)
 }
 
-impl AutomatedMarketMaker for CurvePool {
+impl AutomatedMarketMaker for CurveStableSwapPool {
     fn address(&self) -> Address {
         self.address
     }
 
     fn sync_events(&self) -> Vec<B256> {
         vec![
-            ICurvePool::TokenExchange::SIGNATURE_HASH,
-            ICurvePool::TokenExchangeUnderlying::SIGNATURE_HASH,
-            ICurvePool::AddLiquidity::SIGNATURE_HASH,
-            ICurvePool::RemoveLiquidity::SIGNATURE_HASH,
+            ICurveStableSwapPool::TokenExchange::SIGNATURE_HASH,
+            ICurveStableSwapPool::TokenExchangeUnderlying::SIGNATURE_HASH,
+            ICurveStableSwapPool::AddLiquidity::SIGNATURE_HASH,
+            ICurveStableSwapPool::RemoveLiquidity::SIGNATURE_HASH,
         ]
     }
 
@@ -107,8 +107,8 @@ impl AutomatedMarketMaker for CurvePool {
         // Handle different Curve pool events
         let event_signature = log.topics()[0];
         
-        if event_signature == ICurvePool::TokenExchange::SIGNATURE_HASH {
-            let event = ICurvePool::TokenExchange::decode_log(&log.inner)?;
+        if event_signature == ICurveStableSwapPool::TokenExchange::SIGNATURE_HASH {
+            let event = ICurveStableSwapPool::TokenExchange::decode_log(&log.inner)?;
             let sold_idx = event.sold_id as usize;
             let bought_idx = event.bought_id as usize;
             
@@ -128,8 +128,8 @@ impl AutomatedMarketMaker for CurvePool {
                     "TokenExchange synced"
                 );
             }
-        } else if event_signature == ICurvePool::TokenExchangeUnderlying::SIGNATURE_HASH {
-            let event = ICurvePool::TokenExchangeUnderlying::decode_log(&log.inner)?;
+        } else if event_signature == ICurveStableSwapPool::TokenExchangeUnderlying::SIGNATURE_HASH {
+            let event = ICurveStableSwapPool::TokenExchangeUnderlying::decode_log(&log.inner)?;
             let sold_idx = event.sold_id as usize;
             let bought_idx = event.bought_id as usize;
             
@@ -149,7 +149,7 @@ impl AutomatedMarketMaker for CurvePool {
                     "TokenExchangeUnderlying synced"
                 );
             }
-        } else if event_signature == ICurvePool::AddLiquidity::SIGNATURE_HASH {
+        } else if event_signature == ICurveStableSwapPool::AddLiquidity::SIGNATURE_HASH {
             // For AddLiquidity and RemoveLiquidity, we need to refetch balances
             // since the events don't provide complete balance information for all tokens
             info!(
@@ -157,7 +157,7 @@ impl AutomatedMarketMaker for CurvePool {
                 address = ?self.address,
                 "AddLiquidity event - balances need to be refreshed via contract call"
             );
-        } else if event_signature == ICurvePool::RemoveLiquidity::SIGNATURE_HASH {
+        } else if event_signature == ICurveStableSwapPool::RemoveLiquidity::SIGNATURE_HASH {
             info!(
                 target = "amm::curve::sync",
                 address = ?self.address,
@@ -229,7 +229,7 @@ impl AutomatedMarketMaker for CurvePool {
         N: Network,
         P: Provider<N> + Clone,
     {
-        let curve_pool = ICurvePool::new(self.address, provider.clone());
+        let curve_pool = ICurveStableSwapPool::new(self.address, provider.clone());
         
         // Fetch amplification coefficient
         let amp_result = curve_pool.A().call().block(block_number).await;
@@ -292,7 +292,7 @@ impl AutomatedMarketMaker for CurvePool {
     }
 }
 
-impl CurvePool {
+impl CurveStableSwapPool {
     /// Create a new Curve pool
     pub fn new(
         address: Address,
@@ -315,7 +315,7 @@ impl CurvePool {
         self.tokens
             .iter()
             .position(|t| t.address == token)
-            .ok_or_else(|| CurveError::InvalidTokenIndex.into())
+            .ok_or_else(|| CurveStableSwapError::InvalidTokenIndex.into())
     }
 
     /// Calculate the StableSwap invariant D
@@ -396,7 +396,7 @@ impl CurvePool {
             }
         }
 
-        Err(CurveError::InvariantCalculationFailed.into())
+        Err(CurveStableSwapError::InvariantCalculationFailed.into())
     }
 
     /// Calculate output amount for a swap
@@ -405,11 +405,11 @@ impl CurvePool {
     /// dx: input amount
     fn get_dy(&self, i: usize, j: usize, dx: U256) -> Result<U256, AMMError> {
         if i >= self.balances.len() || j >= self.balances.len() {
-            return Err(CurveError::InvalidTokenIndex.into());
+            return Err(CurveStableSwapError::InvalidTokenIndex.into());
         }
 
         if i == j {
-            return Err(CurveError::InvalidTokenIndex.into());
+            return Err(CurveStableSwapError::InvalidTokenIndex.into());
         }
 
         let n = self.balances.len();
@@ -515,7 +515,7 @@ impl CurvePool {
                 .ok_or(AMMError::ArithmeticError)?;
 
             if denominator.is_zero() {
-                return Err(CurveError::CalculationError.into());
+                return Err(CurveStableSwapError::CalculationError.into());
             }
 
             y = numerator
@@ -534,7 +534,7 @@ impl CurvePool {
             }
         }
 
-        Err(CurveError::InvariantCalculationFailed.into())
+        Err(CurveStableSwapError::InvariantCalculationFailed.into())
     }
 }
 
@@ -546,7 +546,7 @@ mod tests {
     #[test]
     fn test_calculate_d_simple() {
         // Test with a simple 2-token pool with equal balances
-        let pool = CurvePool {
+        let pool = CurveStableSwapPool {
             address: Address::default(),
             tokens: vec![
                 Token::new_with_decimals(address!("0000000000000000000000000000000000000001"), 18),
@@ -576,7 +576,7 @@ mod tests {
     #[test]
     fn test_get_dy_swap() {
         // Test a swap in a balanced pool
-        let pool = CurvePool {
+        let pool = CurveStableSwapPool {
             address: Address::default(),
             tokens: vec![
                 Token::new_with_decimals(address!("0000000000000000000000000000000000000001"), 18),
@@ -610,7 +610,7 @@ mod tests {
         let token_a = address!("0000000000000000000000000000000000000001");
         let token_b = address!("0000000000000000000000000000000000000002");
 
-        let pool = CurvePool {
+        let pool = CurveStableSwapPool {
             address: Address::default(),
             tokens: vec![
                 Token::new_with_decimals(token_a, 18),
@@ -633,7 +633,7 @@ mod tests {
         let token_a = address!("0000000000000000000000000000000000000001");
         let token_b = address!("0000000000000000000000000000000000000002");
 
-        let mut pool = CurvePool {
+        let mut pool = CurveStableSwapPool {
             address: Address::default(),
             tokens: vec![
                 Token::new_with_decimals(token_a, 18),
@@ -666,7 +666,7 @@ mod tests {
         let token_a = address!("0000000000000000000000000000000000000001");
         let token_b = address!("0000000000000000000000000000000000000002");
 
-        let pool = CurvePool {
+        let pool = CurveStableSwapPool {
             address: Address::default(),
             tokens: vec![
                 Token::new_with_decimals(token_a, 18),
@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn test_imbalanced_pool() {
         // Test with an imbalanced pool
-        let pool = CurvePool {
+        let pool = CurveStableSwapPool {
             address: Address::default(),
             tokens: vec![
                 Token::new_with_decimals(address!("0000000000000000000000000000000000000001"), 18),
@@ -711,7 +711,7 @@ mod tests {
     #[test]
     fn test_three_token_pool() {
         // Test a 3-token pool
-        let pool = CurvePool {
+        let pool = CurveStableSwapPool {
             address: Address::default(),
             tokens: vec![
                 Token::new_with_decimals(address!("0000000000000000000000000000000000000001"), 18),
@@ -771,7 +771,7 @@ mod tests {
         // So 1M USDC (6 decimals) = 1_000_000 * 10^6 = 1_000_000_000_000
         // But for StableSwap math, we want equal value, so we normalize:
         // 1M USDC = 1_000_000_000_000_000_000_000_000 (normalized to 18 decimals)
-        let pool = CurvePool {
+        let pool = CurveStableSwapPool {
             address: Address::default(),
             tokens: vec![
                 Token::new_with_decimals(token_a, 6),  // USDC-like (6 decimals)
@@ -800,7 +800,7 @@ mod tests {
     #[test]
     fn test_large_swap() {
         // Test a large swap to see slippage increase
-        let pool = CurvePool {
+        let pool = CurveStableSwapPool {
             address: Address::default(),
             tokens: vec![
                 Token::new_with_decimals(address!("0000000000000000000000000000000000000001"), 18),
@@ -837,7 +837,7 @@ mod tests {
         let token_a = address!("0000000000000000000000000000000000000001");
         let token_b = address!("0000000000000000000000000000000000000002");
 
-        let pool = CurvePool {
+        let pool = CurveStableSwapPool {
             address: Address::default(),
             tokens: vec![
                 Token::new_with_decimals(token_a, 18),
@@ -858,7 +858,7 @@ mod tests {
     #[test]
     fn test_different_amplification_coefficients() {
         // Test pools with different A values
-        let create_pool = |amp_coef: u128| CurvePool {
+        let create_pool = |amp_coef: u128| CurveStableSwapPool {
             address: Address::default(),
             tokens: vec![
                 Token::new_with_decimals(address!("0000000000000000000000000000000000000001"), 18),

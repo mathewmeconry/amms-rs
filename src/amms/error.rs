@@ -1,5 +1,5 @@
 use super::{
-    balancer::BalancerError, curve::CurveError, erc_4626::ERC4626VaultError,
+    balancer::BalancerError, curve::CurveStableSwapError, erc_4626::ERC4626VaultError,
     uniswap_v2::UniswapV2Error, uniswap_v3::UniswapV3Error,
 };
 use alloy::{primitives::FixedBytes, transports::TransportErrorKind};
@@ -22,7 +22,7 @@ pub enum AMMError {
     #[error(transparent)]
     BalancerError(#[from] BalancerError),
     #[error(transparent)]
-    CurveError(#[from] CurveError),
+    CurveStableSwapError(#[from] CurveStableSwapError),
     #[error(transparent)]
     ERC4626VaultError(#[from] ERC4626VaultError),
     #[error(transparent)]
