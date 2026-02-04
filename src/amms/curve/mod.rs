@@ -604,4 +604,187 @@ mod tests {
         // Should get less than amount_in due to imbalance and fee
         assert!(amount_out < amount_in);
     }
+
+    #[test]
+    fn test_three_token_pool() {
+        // Test a 3-token pool
+        let pool = CurvePool {
+            address: Address::default(),
+            tokens: vec![
+                Token::new_with_decimals(address!("0000000000000000000000000000000000000001"), 18),
+                Token::new_with_decimals(address!("0000000000000000000000000000000000000002"), 18),
+                Token::new_with_decimals(address!("0000000000000000000000000000000000000003"), 18),
+            ],
+            balances: vec![
+                1_000_000_000_000_000_000_000,
+                1_000_000_000_000_000_000_000,
+                1_000_000_000_000_000_000_000,
+            ], // 1000 tokens each
+            amplification_coefficient: 100,
+            fee: 4,
+        };
+
+        let d = pool.calculate_d().unwrap();
+        assert!(d > U256::ZERO);
+
+        // For a balanced 3-token pool, D should be approximately 3 * balance
+        let expected_d_approx = U256::from(3_000_000_000_000_000_000_000_u128);
+        let diff = if d > expected_d_approx {
+            d - expected_d_approx
+        } else {
+            expected_d_approx - d
+        };
+
+        // Allow 1% deviation
+        let tolerance = expected_d_approx / U256::from(100u128);
+        assert!(
+            diff < tolerance,
+            "D calculation deviated too much: got {}, expected ~{}",
+            d,
+            expected_d_approx
+        );
+
+        // Test swap in 3-token pool
+        let amount_in = U256::from(10_000_000_000_000_000_000_u128);
+        let amount_out = pool.get_dy(0, 1, amount_in).unwrap();
+
+        // For balanced pool, should get close to input amount (minus fee)
+        assert!(amount_out > U256::ZERO);
+        assert!(amount_out < amount_in); // With fee
+
+        // Also test a different pair
+        let amount_out_2 = pool.get_dy(1, 2, amount_in).unwrap();
+        assert!(amount_out_2 > U256::ZERO);
+        assert!(amount_out_2 < amount_in);
+    }
+
+    #[test]
+    fn test_different_decimals() {
+        // Test a pool with tokens having different decimal places
+        let token_a = address!("0000000000000000000000000000000000000001");
+        let token_b = address!("0000000000000000000000000000000000000002");
+
+        // For Curve pools, balances should be normalized to 18 decimals internally
+        // So 1M USDC (6 decimals) = 1_000_000 * 10^6 = 1_000_000_000_000
+        // But for StableSwap math, we want equal value, so we normalize:
+        // 1M USDC = 1_000_000_000_000_000_000_000_000 (normalized to 18 decimals)
+        let pool = CurvePool {
+            address: Address::default(),
+            tokens: vec![
+                Token::new_with_decimals(token_a, 6),  // USDC-like (6 decimals)
+                Token::new_with_decimals(token_b, 18), // DAI-like (18 decimals)
+            ],
+            balances: vec![
+                1_000_000_000_000_000_000_000_000, // 1M tokens normalized
+                1_000_000_000_000_000_000_000_000, // 1M tokens
+            ],
+            amplification_coefficient: 100,
+            fee: 4,
+        };
+
+        // Calculate price
+        let price = pool.calculate_price(token_a, token_b).unwrap();
+
+        // For a balanced stablecoin pool, price should be close to 1.0
+        // (when adjusted for decimals, which is handled in calculate_price)
+        assert!(
+            price > 0.99 && price < 1.01,
+            "Price {} is not close to 1.0 for stablecoin pool",
+            price
+        );
+    }
+
+    #[test]
+    fn test_large_swap() {
+        // Test a large swap to see slippage increase
+        let pool = CurvePool {
+            address: Address::default(),
+            tokens: vec![
+                Token::new_with_decimals(address!("0000000000000000000000000000000000000001"), 18),
+                Token::new_with_decimals(address!("0000000000000000000000000000000000000002"), 18),
+            ],
+            balances: vec![1_000_000_000_000_000_000_000, 1_000_000_000_000_000_000_000],
+            amplification_coefficient: 100,
+            fee: 4,
+        };
+
+        // Small swap
+        let small_amount = U256::from(10_000_000_000_000_000_000_u128); // 10 tokens
+        let small_out = pool.get_dy(0, 1, small_amount).unwrap();
+
+        // Large swap (10% of pool)
+        let large_amount = U256::from(100_000_000_000_000_000_000_u128); // 100 tokens
+        let large_out = pool.get_dy(0, 1, large_amount).unwrap();
+
+        // Calculate effective exchange rates
+        let small_rate = small_out.to::<u128>() as f64 / small_amount.to::<u128>() as f64;
+        let large_rate = large_out.to::<u128>() as f64 / large_amount.to::<u128>() as f64;
+
+        // Large swap should have worse rate due to slippage
+        assert!(
+            large_rate < small_rate,
+            "Large swap rate {} should be worse than small swap rate {}",
+            large_rate,
+            small_rate
+        );
+    }
+
+    #[test]
+    fn test_zero_amount_swap() {
+        let token_a = address!("0000000000000000000000000000000000000001");
+        let token_b = address!("0000000000000000000000000000000000000002");
+
+        let pool = CurvePool {
+            address: Address::default(),
+            tokens: vec![
+                Token::new_with_decimals(token_a, 18),
+                Token::new_with_decimals(token_b, 18),
+            ],
+            balances: vec![1_000_000_000_000_000_000_000, 1_000_000_000_000_000_000_000],
+            amplification_coefficient: 100,
+            fee: 4,
+        };
+
+        let amount_in = U256::ZERO;
+        let amount_out = pool.get_dy(0, 1, amount_in).unwrap();
+
+        // Zero input should give zero output
+        assert_eq!(amount_out, U256::ZERO);
+    }
+
+    #[test]
+    fn test_different_amplification_coefficients() {
+        // Test pools with different A values
+        let create_pool = |amp_coef: u128| CurvePool {
+            address: Address::default(),
+            tokens: vec![
+                Token::new_with_decimals(address!("0000000000000000000000000000000000000001"), 18),
+                Token::new_with_decimals(address!("0000000000000000000000000000000000000002"), 18),
+            ],
+            balances: vec![1_000_000_000_000_000_000_000, 1_000_000_000_000_000_000_000],
+            amplification_coefficient: amp_coef,
+            fee: 4,
+        };
+
+        let low_amp = create_pool(10);  // More like constant product
+        let high_amp = create_pool(1000); // More like constant sum
+
+        let amount_in = U256::from(100_000_000_000_000_000_000_u128); // 100 tokens (10% of pool)
+
+        let low_amp_out = low_amp.get_dy(0, 1, amount_in).unwrap();
+        let high_amp_out = high_amp.get_dy(0, 1, amount_in).unwrap();
+
+        // Higher amplification should give better output (less slippage)
+        assert!(
+            high_amp_out > low_amp_out,
+            "High amp output {} should be better than low amp output {}",
+            high_amp_out,
+            low_amp_out
+        );
+
+        // High amp should be closer to the input amount
+        let high_amp_diff = amount_in - high_amp_out;
+        let low_amp_diff = amount_in - low_amp_out;
+        assert!(high_amp_diff < low_amp_diff);
+    }
 }
