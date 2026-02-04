@@ -3,8 +3,9 @@ pub mod bmath;
 use std::{collections::HashMap, future::Future};
 
 use alloy::{
-    eips::BlockId,
-    network::Network,
+    consensus::BlockHeader,
+    eips::{BlockId, BlockNumberOrTag},
+    network::{BlockResponse, Network},
     primitives::{Address, B256, U256},
     providers::Provider,
     rpc::types::{Filter, FilterSet, Log},
@@ -17,7 +18,7 @@ use itertools::Itertools;
 use rug::{float::Round, Float};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::{
     amm::{AutomatedMarketMaker, AMM},
@@ -461,27 +462,82 @@ impl BalancerFactory {
         let sync_provider = provider.clone();
         let mut futures = FuturesUnordered::new();
 
+        let target_block_num = match block_number {
+            BlockId::Number(BlockNumberOrTag::Number(num)) => num,
+            BlockId::Number(tag) => {
+                let block = provider.get_block_by_number(tag).await?;
+                block.unwrap().header().number()
+            }
+            BlockId::Hash(hash) => {
+                let res = provider.get_block_by_hash(hash.block_hash).await?;
+                res.unwrap().header().number()
+            }
+        };
+
         let sync_step = 100_000;
         let mut latest_block = self.creation_block;
-        while latest_block < block_number.as_u64().unwrap_or_default() {
+        let mut pools = vec![];
+
+        while latest_block < target_block_num {
             let mut block_filter = disc_filter.clone();
             let from_block = latest_block;
-            let to_block = (from_block + sync_step).min(block_number.as_u64().unwrap_or_default());
+            let to_block = (from_block + sync_step).min(target_block_num);
 
             block_filter = block_filter.from_block(from_block);
             block_filter = block_filter.to_block(to_block);
 
             let sync_provider = sync_provider.clone();
 
-            futures.push(async move { sync_provider.get_logs(&block_filter).await });
+            if futures.len() >= 10 {
+                while futures.len() > 0 {
+                    if let Some(logs) = futures.next().await {
+                        for log in logs {
+                            pools.push(self.create_pool(log)?);
+                        }
+                        info!(
+                            pending_futures = ?futures.len(),
+                            pool_count = ?pools.len(),
+                            "Processed batch of pool creation logs"
+                        );
+                    }
+                }
+            }
+
+            futures.push(async move {
+                let mut attempts = 0;
+                const MAX_ATTEMPTS: u32 = 3;
+                loop {
+                    match sync_provider.get_logs(&block_filter).await {
+                        Ok(logs) => break logs,
+                        Err(e) => {
+                            attempts += 1;
+                            if attempts >= MAX_ATTEMPTS {
+                                warn!(
+                                    target = "amms::balancer::get_all_pools",
+                                    error = ?e,
+                                    "Max attempts reached, returning empty logs"
+                                );
+                                break vec![]; // Return empty logs on failure after max attempts
+                            }
+                            tracing::warn!(
+                                target = "amms::balancer::get_all_pools",
+                                attempt = attempts,
+                                error = ?e,
+                                "Failed to get logs, retrying"
+                            );
+                            tokio::time::sleep(tokio::time::Duration::from_millis(
+                                100 * attempts as u64,
+                            ))
+                            .await;
+                        }
+                    }
+                }
+            });
 
             latest_block = to_block + 1;
         }
 
-        let mut pools = vec![];
-        while let Some(res) = futures.next().await {
-            let logs = res?;
-
+        while let Some(logs) = futures.next().await {
             for log in logs {
                 pools.push(self.create_pool(log)?);
             }
