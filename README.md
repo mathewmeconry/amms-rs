@@ -19,4 +19,5 @@
 | UniswapV2 | ✅     |
 | UniswapV3 | ✅     |
 | Balancer  | ✅     |
+| Curve StableSwap | ✅     |
 | ERC4626 Vaults | ✅     |
