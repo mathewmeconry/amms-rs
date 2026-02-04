@@ -23,19 +23,37 @@ const TARGET_CONTRACTS: &[&str] = &[
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let abi_out_dir = manifest_dir.join("src/amms/abi/");
+    fs::create_dir_all(&abi_out_dir)?;
 
-    let status = Command::new("forge")
+    // Try to run forge build, but don't fail if forge is not available
+    let forge_result = Command::new("forge")
         .arg("build")
         .current_dir("contracts")
-        .status()?;
+        .status();
 
+    // If forge is not available or fails, check if ABI files already exist
+    if forge_result.is_err() {
+        // Check if all required ABI files exist
+        let all_abis_exist = TARGET_CONTRACTS.iter().all(|contract| {
+            abi_out_dir.join(format!("{contract}.json")).exists()
+        });
+        
+        if all_abis_exist {
+            println!("cargo:warning=forge not available, but all ABI files exist");
+            println!("cargo:rerun-if-changed=contracts");
+            return Ok(());
+        } else {
+            return Err("forge not available and ABI files are missing".into());
+        }
+    }
+    
+    let status = forge_result.unwrap();
     if !status.success() {
         panic!("forge build failed");
     }
 
     let forge_out_dir = manifest_dir.join("contracts/out");
-    let abi_out_dir = manifest_dir.join("src/amms/abi/");
-    fs::create_dir_all(&abi_out_dir)?;
 
     TARGET_CONTRACTS.par_iter().for_each(|contract| {
         let new_abi = forge_out_dir
